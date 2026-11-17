@@ -1,0 +1,185 @@
+package com.nitya.musynx.app.ui.screens.settings
+
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.ExitToApp
+import androidx.compose.material.icons.automirrored.outlined.QueueMusic
+import androidx.compose.material.icons.filled.MusicOff
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.nitya.musynx.core.ui.LocalAppearance
+import com.nitya.musynx.app.LocalPlayerServiceBinder
+import com.nitya.musynx.app.R
+import com.nitya.musynx.app.ui.common.IconSource
+import com.nitya.musynx.app.ui.components.SliderSettingsItem
+import com.nitya.musynx.app.ui.components.SwitchSetting
+import com.nitya.musynx.app.utils.PlaybackSource
+import com.nitya.musynx.app.utils.formatAsDuration
+import com.nitya.musynx.app.utils.pauseOnAppCloseKey
+import com.nitya.musynx.app.utils.persistentQueueKey
+import com.nitya.musynx.app.utils.playbackPitchKey
+import com.nitya.musynx.app.utils.playbackSourceKey
+import com.nitya.musynx.app.utils.playbackSpeedKey
+import com.nitya.musynx.app.utils.rememberPreference
+import com.nitya.musynx.app.utils.resumePlaybackWhenDeviceConnectedKey
+import com.nitya.musynx.app.utils.skipSilenceKey
+import com.nitya.musynx.app.utils.stopAfterCurrentKey
+import com.nitya.musynx.app.utils.volumeNormalizationKey
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
+import java.util.Locale
+
+@Composable
+fun PlayerSettingsContent(
+    onSleepTimerClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val binder = LocalPlayerServiceBinder.current
+    val sleepTimerMillisLeft by (binder?.sleepTimerMillisLeft
+        ?: flowOf(null)).collectAsState(initial = null)
+    val stopAfterCurrent by rememberPreference(stopAfterCurrentKey, false)
+
+    var skipSilence by rememberPreference(skipSilenceKey, false)
+    var volumeNormalization by rememberPreference(volumeNormalizationKey, false)
+    var resumePlaybackWhenDeviceConnected by rememberPreference(
+        resumePlaybackWhenDeviceConnectedKey,
+        false
+    )
+    var persistentQueue by rememberPreference(persistentQueueKey, true)
+    var playSpeed by rememberPreference(playbackSpeedKey, 1f)
+    var playPitch by rememberPreference(playbackPitchKey, 1f)
+    var pauseOnAppClose by rememberPreference(pauseOnAppCloseKey, false)
+
+    val (colorPalette) = LocalAppearance.current
+
+    val clearQueueString = stringResource(R.string.clear_queue)
+
+    SettingsGroup(
+        title = stringResource(R.string.play_back)
+    ) {
+        SettingsColumn(
+            icon = IconSource.Vector(Icons.Outlined.Timer),
+            title = stringResource(R.string.sleep_timer),
+            description = when {
+                stopAfterCurrent && sleepTimerMillisLeft != null ->
+                    "${stringResource(R.string.stop_after_current)} • ${
+                        formatAsDuration(
+                            sleepTimerMillisLeft!!
+                        )
+                    }"
+
+                stopAfterCurrent -> stringResource(R.string.stop_after_current)
+                sleepTimerMillisLeft != null -> formatAsDuration(sleepTimerMillisLeft!!)
+                else -> stringResource(R.string.off)
+            },
+            descriptionColor = LocalAppearance.current.colorPalette.accent,
+            onClick = onSleepTimerClick,
+        )
+    }
+    SettingsGroup {
+        SwitchSetting(
+            icon = IconSource.Vector(Icons.AutoMirrored.Outlined.QueueMusic),
+            title = stringResource(id = R.string.persistent_queue),
+            description = stringResource(id = R.string.persistent_queue_description),
+            switchState = persistentQueue,
+            onSwitchChange = {
+                persistentQueue = it
+            }
+        )
+//        AnimatedVisibility(visible = persistentQueue) {
+//            SettingsColumn(
+//                icon = IconSource.Vector(Icons.Default.MusicOff),
+//                title = stringResource(R.string.clear_queue),
+//                onClick = {
+//                    binder?.clearPersistentQueue()
+//                    context.toast(clearQueueString)
+//                }
+//            )
+//        }
+
+        SwitchSetting(
+            icon = IconSource.Vector(Icons.Default.MusicOff),
+            title = stringResource(id = R.string.skip_silence),
+            description = stringResource(id = R.string.skip_silence_description),
+            switchState = skipSilence,
+            onSwitchChange = {
+                skipSilence = it
+            }
+        )
+        SwitchSetting(
+            icon = IconSource.Icon(painterResource(R.drawable.headphone)),
+            title = stringResource(id = R.string.resume_playback),
+            description = stringResource(id = R.string.resume_playback_description),
+            switchState = resumePlaybackWhenDeviceConnected,
+            onSwitchChange = {
+                resumePlaybackWhenDeviceConnected = it
+            }
+        )
+
+        SwitchSetting(
+            icon = IconSource.Vector(Icons.AutoMirrored.Outlined.ExitToApp),
+            title = stringResource(R.string.stop_on_app_close),
+            description = stringResource(R.string.stop_on_app_close_description),
+            switchState = pauseOnAppClose,
+            onSwitchChange = {
+                pauseOnAppClose = it
+            }
+        )
+    }
+
+    SettingsGroup(
+        title = stringResource(R.string.audio)
+    ) {
+        SwitchSetting(
+            icon = IconSource.Vector(Icons.AutoMirrored.Filled.VolumeUp),
+            title = stringResource(id = R.string.loudness_normalization),
+            description = stringResource(id = R.string.loudness_normalization_description),
+            switchState = volumeNormalization,
+            onSwitchChange = {
+                volumeNormalization = it
+            }
+        )
+    }
+
+    SettingsGroup(
+        title = stringResource(R.string.advanced)
+    ) {
+        SliderSettingsItem(
+            label = stringResource(R.string.play_back) + " speed",
+            value = playSpeed,
+            onValueChange = { playSpeed = it },
+            valueRange = 0.5f..2.0f,
+            valueLabel = { String.format(Locale.US, "%.1fx", it) },
+            defaultValue = 1f,
+            hapticUseIntegerStep = false,
+            hapticUseFloatStep = true,
+            hapticFloatStep = 0.1f
+        )
+
+        SliderSettingsItem(
+            label = stringResource(R.string.play_pitch),
+            value = playPitch,
+            onValueChange = { playPitch = it },
+            valueRange = 0.5f..2.0f,
+            valueLabel = { String.format(Locale.US, "%.1fx", it) },
+            defaultValue = 1f,
+            hapticUseIntegerStep = false,
+            hapticUseFloatStep = true,
+            hapticFloatStep = 0.1f
+        )
+    }
+}

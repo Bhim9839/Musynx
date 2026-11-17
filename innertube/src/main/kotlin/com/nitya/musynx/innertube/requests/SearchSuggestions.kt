@@ -1,0 +1,29 @@
+package com.nitya.musynx.innertube.requests
+
+import io.ktor.client.call.body
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import com.nitya.musynx.innertube.Innertube
+import com.nitya.musynx.innertube.models.SearchSuggestionsResponse
+import com.nitya.musynx.innertube.models.bodies.SearchSuggestionsBody
+import com.nitya.musynx.innertube.utils.runCatchingNonCancellable
+
+suspend fun Innertube.searchSuggestions(input: String) = runCatchingNonCancellable {
+    val response = client.post(SEARCH_SUGGESTIONS) {
+        setBody(SearchSuggestionsBody(input = input))
+        mask("contents.searchSuggestionsSectionRenderer.contents.searchSuggestionRenderer.navigationEndpoint.searchEndpoint.query")
+    }.body<SearchSuggestionsResponse>()
+
+    response
+        .contents
+        ?.firstOrNull()
+        ?.searchSuggestionsSectionRenderer
+        ?.contents
+        ?.mapNotNull { content ->
+            content
+                .searchSuggestionRenderer
+                ?.navigationEndpoint
+                ?.searchEndpoint
+                ?.query
+        }
+}

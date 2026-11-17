@@ -1,0 +1,357 @@
+package com.nitya.musynx.app.ui.screens.home
+
+  import android.annotation.SuppressLint
+  import androidx.annotation.OptIn
+  import androidx.compose.animation.Crossfade
+  import androidx.compose.animation.ExperimentalAnimationApi
+  import androidx.compose.foundation.ExperimentalFoundationApi
+  import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DownloadForOffline
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.times
+import androidx.lifecycle.viewmodel.compose.viewModel
+  import androidx.media3.common.util.UnstableApi
+  import coil3.compose.AsyncImage
+  import com.nitya.musynx.core.ui.LocalAppearance
+import com.nitya.musynx.innertube.Innertube
+import com.nitya.musynx.innertube.models.NavigationEndpoint
+import com.nitya.musynx.app.LocalPlayerPadding
+import com.nitya.musynx.app.R
+import com.nitya.musynx.app.LocalPlayerServiceBinder
+import com.nitya.musynx.app.enums.QuickPicksSource
+import com.nitya.musynx.app.models.LocalMenuState
+import com.nitya.musynx.app.ui.components.NonQueuedMediaItemMenu
+import com.nitya.musynx.app.ui.components.ShimmerHost
+import com.nitya.musynx.app.ui.components.TextPlaceholder
+import com.nitya.musynx.app.ui.items.AlbumItem
+import com.nitya.musynx.app.ui.items.ArtistItem
+import com.nitya.musynx.app.ui.items.ItemContainer
+import com.nitya.musynx.app.ui.items.ItemPlaceholder
+import com.nitya.musynx.app.ui.items.ListItemPlaceholder
+import com.nitya.musynx.app.ui.items.PlaylistItem
+import com.nitya.musynx.app.ui.items.SongItem
+import com.nitya.musynx.app.ui.styling.Dimensions
+import com.nitya.musynx.app.ui.styling.px
+import com.nitya.musynx.app.utils.asMediaItem
+import com.nitya.musynx.app.utils.forcePlay
+import com.nitya.musynx.app.utils.isLandscape
+import com.nitya.musynx.app.utils.quickPicksCustomGenreKey
+import com.nitya.musynx.app.utils.quickPicksSourceKey
+import com.nitya.musynx.app.utils.rememberPreference
+import com.nitya.musynx.app.utils.thumbnail
+import com.nitya.musynx.app.viewmodels.home.QuickPicksViewModel
+import java.io.IOException
+
+@SuppressLint("ConfigurationScreenWidthHeight")
+@ExperimentalFoundationApi
+@ExperimentalAnimationApi
+@OptIn(UnstableApi::class)
+@Composable
+fun QuickPicks(
+    onAlbumClick: (String) -> Unit,
+    onArtistClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
+    onHistoryViewAllClick: () -> Unit,
+    onOfflinePlaylistClick: () -> Unit
+) {
+    val binder = LocalPlayerServiceBinder.current
+    val menuState = LocalMenuState.current
+    val playerPadding = LocalPlayerPadding.current
+    val (colorPalette) = LocalAppearance.current
+
+    val viewModel: QuickPicksViewModel = viewModel()
+    val quickPicksSource by rememberPreference(quickPicksSourceKey, QuickPicksSource.Default)
+    val quickPicksCustomGenre by rememberPreference(quickPicksCustomGenreKey, "ROCK")
+
+    val songThumbnailSizeDp = Dimensions.thumbnails.song
+    val itemSize = 108.dp + 2 * 8.dp
+    val quickPicksLazyGridState = rememberLazyGridState()
+    val sectionTextModifier = Modifier
+        .padding(horizontal = 16.dp)
+        .padding(bottom = 8.dp)
+
+    val latestPlayback = if (quickPicksSource == QuickPicksSource.Default) {
+        viewModel.latestQualifiedPlaybackTimestamp
+    } else null
+    LaunchedEffect(quickPicksSource, quickPicksCustomGenre, latestPlayback) {
+        viewModel.loadQuickPicks(
+            quickPicksSource = quickPicksSource,
+            forceRefresh = quickPicksSource == QuickPicksSource.Custom
+        )
+    }
+
+    LaunchedEffect(viewModel.relatedPageResult) {
+        viewModel.relatedPageResult?.getOrNull()?.songs?.let { songs ->
+            binder?.preCacheManager?.preCache(songs.map(Innertube.SongItem::asMediaItem))
+        }
+    }
+
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp.dp
+
+    val quickPicksLazyGridItemWidthFactor =
+        if (isLandscape && screenWidth * 0.475f >= 320.dp) 0.475f else 0.9f
+
+    val itemInHorizontalGridWidth = screenWidth * quickPicksLazyGridItemWidthFactor
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(top = 4.dp, bottom = 16.dp + playerPadding)
+    ) {
+        val result = viewModel.relatedPageResult
+        val related = result?.getOrNull()
+        val error = result?.exceptionOrNull() ?: if (result != null && related == null) Exception("Empty response") else null
+
+        if (related != null) {
+            Text(
+                text = stringResource(id = R.string.quick_picks),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = sectionTextModifier.padding(top = 8.dp)
+            )
+
+            LazyHorizontalGrid(
+                state = quickPicksLazyGridState,
+                rows = GridCells.Fixed(count = 4),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height((songThumbnailSizeDp + Dimensions.itemsVerticalPadding * 2) * 4)
+            ) {
+                items(
+                    items = (related.songs ?: emptyList()).filter { it.key.isNotEmpty() }.distinctBy { it.key + it.info?.endpoint?.playlistId.orEmpty() },
+                    key = { it.key + it.info?.endpoint?.playlistId.orEmpty() }
+                ) { song ->
+                    SongItem(
+                        modifier = Modifier
+                            .animateItem()
+                            .width(itemInHorizontalGridWidth),
+                        song = song,
+                        onClick = {
+                            val mediaItem = song.asMediaItem
+                            binder?.stopRadio()
+                            binder?.player?.forcePlay(mediaItem)
+                            binder?.setupRadio(
+                                NavigationEndpoint.Endpoint.Watch(videoId = mediaItem.mediaId)
+                            )
+                        },
+                        onLongClick = {
+                            menuState.display {
+                                NonQueuedMediaItemMenu(
+                                    onDismiss = menuState::hide,
+                                    mediaItem = song.asMediaItem,
+                                    onGoToAlbum = onAlbumClick,
+                                    onGoToArtist = onArtistClick
+                                )
+                            }
+                        }
+                    )
+                }
+            }
+
+            if (viewModel.historySongs.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(Dimensions.spacer))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 8.dp)
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.history),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = sectionTextModifier.weight(1f)
+                    )
+
+                    TextButton(onClick = onHistoryViewAllClick) {
+                        Text(
+                            text = stringResource(id = R.string.view_all),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colorPalette.accent,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(items = viewModel.historySongs, key = { it.id }) { song ->
+                        ItemContainer(
+                            modifier = Modifier.widthIn(max = itemSize),
+                            title = song.title,
+                            subtitle = song.artistsText,
+                            onClick = {
+                                val mediaItem = song.asMediaItem
+                                binder?.stopRadio()
+                                binder?.player?.forcePlay(mediaItem)
+                            }
+                        ) {
+                            BoxWithConstraints(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.app_icon),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(this@BoxWithConstraints.maxWidth / 2),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                                AsyncImage(
+                                    model = song.thumbnailUrl?.thumbnail(maxWidth.px),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.clip(MaterialTheme.shapes.large)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            related.albums?.let { albums ->
+                Spacer(modifier = Modifier.height(Dimensions.spacer))
+                Text(text = stringResource(id = R.string.related_albums), style = MaterialTheme.typography.titleMedium, modifier = sectionTextModifier)
+                LazyRow(contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    items(items = albums.filter { it.key.isNotEmpty() }.distinctBy { it.key }, key = Innertube.AlbumItem::key) { album ->
+                        AlbumItem(modifier = Modifier.widthIn(max = itemSize), album = album, onClick = { onAlbumClick(album.key) })
+                    }
+                }
+            }
+
+            related.artists?.let { artists ->
+                Spacer(modifier = Modifier.height(Dimensions.spacer))
+                Text(text = stringResource(id = R.string.similar_artists), style = MaterialTheme.typography.titleMedium, modifier = sectionTextModifier)
+                LazyRow(contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    items(items = artists.filter { it.key.isNotEmpty() }.distinctBy { it.key }, key = Innertube.ArtistItem::key) { artist ->
+                        ArtistItem(modifier = Modifier.widthIn(max = itemSize), artist = artist, onClick = { onArtistClick(artist.key) })
+                    }
+                }
+            }
+
+            related.playlists?.let { playlists ->
+                Spacer(modifier = Modifier.height(Dimensions.spacer))
+                Text(text = stringResource(id = R.string.recommended_playlists), style = MaterialTheme.typography.titleMedium, modifier = sectionTextModifier)
+                LazyRow(contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    items(items = playlists.filter { it.key.isNotEmpty() }.distinctBy { it.key }, key = Innertube.PlaylistItem::key) { playlist ->
+                        PlaylistItem(modifier = Modifier.widthIn(max = itemSize), playlist = playlist, onClick = { onPlaylistClick(playlist.key) })
+                    }
+                }
+            }
+
+        } else {
+            Crossfade(targetState = error, label = "RetryAnimation") { currentError ->
+                if (currentError != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 64.dp, bottom = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        AsyncImage(
+                            model = "file:///android_asset/img/A4.webp",
+                            contentDescription = null,
+                            modifier = Modifier.size(240.dp)
+                        )
+
+                        val errorMessage = if (currentError is IOException) {
+                            stringResource(id = R.string.network_error)
+                        } else {
+                            stringResource(id = R.string.home_error)
+                        }
+
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    viewModel.relatedPageResult = null
+                                    viewModel.loadQuickPicks(quickPicksSource)
+                                }
+                            ) {
+                                Icon(imageVector = Icons.Outlined.Refresh, contentDescription = null)
+                                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                Text(text = stringResource(id = R.string.retry))
+                            }
+
+                            FilledTonalButton(onClick = onOfflinePlaylistClick) {
+                                Icon(imageVector = Icons.Outlined.DownloadForOffline, contentDescription = null)
+                                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                Text(text = stringResource(id = R.string.offline))
+                            }
+                        }
+                    }
+                } else {
+                    ShimmerHost {
+                        TextPlaceholder(modifier = sectionTextModifier)
+                        repeat(4) { ListItemPlaceholder() }
+                        Spacer(modifier = Modifier.height(Dimensions.spacer))
+                        TextPlaceholder(modifier = sectionTextModifier)
+                        Row(modifier = Modifier.padding(start = 8.dp)) {
+                            repeat(4) { ItemPlaceholder(modifier = Modifier.widthIn(max = itemSize)) }
+                        }
+                        Spacer(modifier = Modifier.height(Dimensions.spacer))
+                        TextPlaceholder(modifier = sectionTextModifier)
+                        Row(modifier = Modifier.padding(start = 8.dp)) {
+                            repeat(4) { ItemPlaceholder(modifier = Modifier.widthIn(max = itemSize), shape = CircleShape) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

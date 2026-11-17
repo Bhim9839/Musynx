@@ -1,0 +1,108 @@
+package com.nitya.musynx.app.ui.screens.settings
+
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import com.nitya.musynx.app.R
+import com.nitya.musynx.app.enums.AppThemeColor
+import com.nitya.musynx.app.enums.PlayerLayout
+import com.nitya.musynx.app.enums.ProgressBar
+import com.nitya.musynx.app.ui.common.IconSource
+import com.nitya.musynx.app.utils.HomeTab
+import com.nitya.musynx.app.utils.TabStyle
+import com.nitya.musynx.app.utils.appearanceUpdatedKey
+import com.nitya.musynx.app.utils.appTheme
+import com.nitya.musynx.app.utils.playerlayout
+import com.nitya.musynx.app.utils.progressBarStyle
+import com.nitya.musynx.app.utils.rememberPreference
+import com.nitya.musynx.app.utils.tabStyleKey
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun AppearanceSettingsContent(
+    onBackgroundClick: () -> Unit
+) {
+    var appThemeColor by rememberPreference(appTheme, AppThemeColor.System)
+    var progressBarStyle by rememberPreference(progressBarStyle, ProgressBar.Default )
+    var playerlayout by rememberPreference(playerlayout, PlayerLayout.Default )
+    var tabStyle by rememberPreference(tabStyleKey, TabStyle.Classic)
+
+    var isAppearanceUpdated by rememberPreference(appearanceUpdatedKey, false)
+
+    LaunchedEffect(Unit) {
+        isAppearanceUpdated = false
+    }
+
+    val homeTabsVisibility = HomeTab.entries.associateWith { tab ->
+        rememberPreference(tab.key, true)
+    }
+
+    SettingsGroup(
+        title = stringResource(id = R.string.theme),
+    ) {
+        EnumValueSelectorSettingsEntry(
+            title = stringResource(id = R.string.app_theme),
+            selectedValue = appThemeColor,
+            onValueSelected = { appThemeColor = it },
+            icon = IconSource.Icon( painterResource(id = R.drawable.dark_mode)),
+            valueText = { stringResource(it.resourceId) }
+        )
+    }
+
+    SettingsGroup(
+        title = stringResource(id = R.string.player_style),
+    ) {
+        EnumValueSelectorSettingsEntry(
+            title = stringResource(id = R.string.player_layout),
+            selectedValue = playerlayout,
+            onValueSelected = { playerlayout = it },
+            icon = IconSource.Icon( painterResource(id = R.drawable.layout)),
+            valueText = { stringResource(it.resourceId) }
+        )
+    }
+
+    SettingsGroup{
+        EnumValueSelectorSettingsEntry(
+            title = stringResource(id = R.string.progress_bar_style),
+            selectedValue = progressBarStyle,
+            onValueSelected = { progressBarStyle = it },
+            icon = IconSource.Icon( painterResource(id = R.drawable.wave)),
+            valueText = { stringResource(it.resourceId) }
+        )
+        SettingsColumn(
+            icon = IconSource.Vector(Icons.Default.BlurOn),
+            title = stringResource(id = R.string.background_style),
+            description = stringResource(id = R.string.background_style_discription),
+            onClick = onBackgroundClick,
+        )
+    }
+
+    SettingsGroup(
+        title = stringResource(id = R.string.home_screen_tabs),
+    ) {
+        EnumValueSelectorSettingsEntry(
+            title = stringResource(id = R.string.tab_style),
+            selectedValue = tabStyle,
+            onValueSelected = { tabStyle = it },
+            icon = IconSource.Icon(painterResource(id = R.drawable.interface_ui_tabs)),
+            valueText = { stringResource(it.resourceId) }
+        )
+        MultiSelectorSettingsEntry(
+            title = stringResource(id = R.string.home_screen_tabs),
+            selectedValues = homeTabsVisibility.filter { it.value.value }.keys.toSet(),
+            values = HomeTab.entries,
+            onConfirm = { newSelected ->
+                HomeTab.entries.forEach { tab ->
+                    homeTabsVisibility[tab]?.value = newSelected.contains(tab)
+                }
+            },
+            icon = IconSource.Icon(painterResource(id = R.drawable.tabs)),
+            valueText = { stringResource(id = it.title) }
+        )
+    }
+
+}

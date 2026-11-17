@@ -1,0 +1,360 @@
+package com.nitya.musynx.app.ui.screens.player
+
+import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
+import androidx.navigation.NavController
+import com.nitya.musynx.core.ui.LocalAppearance
+import com.nitya.musynx.app.LocalPlayerPadding
+import com.nitya.musynx.app.LocalPlayerServiceBinder
+import com.nitya.musynx.app.SettingsActivity
+import com.nitya.musynx.app.ui.appearance.PlayerBackground
+import com.nitya.musynx.app.ui.components.BannerAdView
+import com.nitya.musynx.app.ui.navigation.Routes
+import com.nitya.musynx.app.ui.navigation.SettingsDestinations
+import com.nitya.musynx.app.utils.isLandscape
+import kotlinx.coroutines.launch
+import androidx.media3.common.Player
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Timeline
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SharedPlayer(
+    navController: NavController,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToSleepTimer: () -> Unit,
+    onNavigateToPlaybackSourceSettings: () -> Unit,
+    sheetState: SheetState,
+    scaffoldPadding: PaddingValues,
+    showPlayer: Boolean,
+    content: @Composable () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val layoutDirection = LocalLayoutDirection.current
+    val context = LocalContext.current
+
+    var showPlaylist by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
+    var targetExpandProgress by remember { mutableFloatStateOf(0f) }
+
+    val expandProgress by animateFloatAsState(
+        targetValue = targetExpandProgress,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "expandAnimation"
+    )
+
+    LaunchedEffect(sheetState.targetValue) {
+        targetExpandProgress = if (sheetState.targetValue == SheetValue.Expanded) 1f else 0f
+    }
+
+    val binder = LocalPlayerServiceBinder.current
+    val player = binder?.player
+    var currentArtworkUrl by remember {
+        mutableStateOf(player?.currentMediaItem?.mediaMetadata?.artworkUri?.toString())
+    }
+
+    var hasMediaItems by remember {
+        mutableStateOf((player?.mediaItemCount ?: 0) > 0)
+    }
+
+    var isPlaying by remember { mutableStateOf(player?.isPlaying ?: false) }
+
+    DisposableEffect(player) {
+        if (player == null) return@DisposableEffect onDispose {}
+
+        val listener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val metadata = mediaItem?.mediaMetadata
+                currentArtworkUrl = metadata?.artworkUri?.toString()
+                    ?: metadata?.extras?.getString("artwork_url")
+                    ?: ""
+                hasMediaItems = player.mediaItemCount > 0
+            }
+
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                hasMediaItems = player.mediaItemCount > 0
+            }
+
+            override fun onIsPlayingChanged(isPlayingChanged: Boolean) {
+                isPlaying = isPlayingChanged
+            }
+        }
+        player.addListener(listener)
+
+        hasMediaItems = player.mediaItemCount > 0
+        isPlaying = player.isPlaying
+        currentArtworkUrl = player.currentMediaItem?.mediaMetadata?.artworkUri?.toString()
+            ?: player.currentMediaItem?.mediaMetadata?.extras?.getString("artwork_url")
+            ?: ""
+
+        onDispose {
+            player.removeListener(listener)
+        }
+    }
+
+    LaunchedEffect(expandProgress) {
+        if (expandProgress == 0f) {
+            showLyrics = false
+            showPlaylist = false
+        }
+    }
+
+    LaunchedEffect(player) {
+        if (player == null && targetExpandProgress > 0f) {
+            targetExpandProgress = 0f
+            scope.launch { sheetState.partialExpand() }
+        }
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val exactScreenHeight = maxHeight
+        val exactScreenWidth = maxWidth
+        val screenHeightPx = with(density) { exactScreenHeight.toPx() }
+
+        val clampedExpandProgress = expandProgress.coerceIn(0f, 1f)
+        val systemBottomPadding = scaffoldPadding.calculateBottomPadding()
+        val miniPlayerHorizontalMargin = lerp(8.dp, 0.dp, clampedExpandProgress).coerceAtLeast(0.dp)
+        val activeBottomPadding = lerp(systemBottomPadding + 8.dp, 0.dp, clampedExpandProgress).coerceAtLeast(0.dp)
+        val playerHeight = lerp(64.dp, exactScreenHeight, clampedExpandProgress).coerceAtLeast(0.dp)
+
+        val cornerRadius = lerp(20.dp, 0.dp, clampedExpandProgress).coerceAtLeast(0.dp)
+
+        CompositionLocalProvider(value = LocalPlayerPadding provides (72.dp + systemBottomPadding)) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = scaffoldPadding.calculateLeftPadding(layoutDirection),
+                        end = scaffoldPadding.calculateRightPadding(layoutDirection)
+                    )
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    content()
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 64.dp + systemBottomPadding + 5.dp)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        BannerAdView()
+                    }
+                }
+            }
+        }
+
+        if (showPlayer) {
+            val (colorPalette) = LocalAppearance.current
+            val isDark = colorPalette.isDark
+
+            val dragGestureModifier = if ((showPlaylist || showLyrics) || (!hasMediaItems && expandProgress == 0f)) {
+                Modifier
+            } else {
+                Modifier.pointerInput(screenHeightPx) {
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            val delta = (dragAmount / screenHeightPx) * 3f
+                            targetExpandProgress = (targetExpandProgress - delta).coerceIn(0f, 1f)
+                        },
+                        onDragEnd = {
+                            targetExpandProgress = if (targetExpandProgress > 0.2f) 1f else 0f
+                            scope.launch {
+                                if (targetExpandProgress == 1f) sheetState.expand() else sheetState.partialExpand()
+                            }
+                        }
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        start = miniPlayerHorizontalMargin,
+                        end = miniPlayerHorizontalMargin,
+                        bottom = activeBottomPadding
+                    )
+                    .fillMaxWidth()
+                    .height(playerHeight)
+                    .graphicsLayer {
+                        shape = RoundedCornerShape(cornerRadius)
+                        clip = true
+                    }
+                    .then(
+                        if (expandProgress < 0.5f) {
+                            Modifier.border(
+                                1.dp,
+                                if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                                RoundedCornerShape(cornerRadius)
+                            )
+                        } else Modifier
+                    )
+                    .then(dragGestureModifier)
+            ) {
+                PlayerBackground(
+                    thumbnailUrl = currentArtworkUrl,
+                    isPlaying = isPlaying,
+                    expandProgress = expandProgress
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+
+                        if (expandProgress > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .layout { measurable, constraints ->
+                                        val screenW = exactScreenWidth.roundToPx()
+                                        val screenH = exactScreenHeight.roundToPx()
+                                        val currentH = constraints.maxHeight
+                                        val pad = activeBottomPadding.roundToPx()
+
+                                        val placeable = measurable.measure(
+                                            Constraints.fixed(screenW, screenH)
+                                        )
+
+                                        layout(constraints.maxWidth, currentH) {
+                                            val yOffset = currentH + pad - screenH
+                                            placeable.placeRelative(0, yOffset)
+                                        }
+                                    }
+                                    .alpha(expandProgress)
+                            ) {
+                                PlayerLayout(
+                                    expandProgress = expandProgress,
+                                    onGoToAlbum = { browseId ->
+                                        scope.launch { sheetState.partialExpand() }
+                                        navController.navigate(route = Routes.Album(id = browseId)) {
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
+                                    onGoToArtist = { browseId ->
+                                        scope.launch { sheetState.partialExpand() }
+                                        navController.navigate(route = Routes.Artist(id = browseId)) {
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
+                                    onGoToTrackDetails = {
+                                        val intent = Intent(context, SettingsActivity::class.java).apply {
+                                            putExtra("SCREEN_ID", SettingsDestinations.TRACK_DETAILS)
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                    onAddToPlaylist = {
+                                        val intent = Intent(context, SettingsActivity::class.java).apply {
+                                            putExtra("SCREEN_ID", SettingsDestinations.ADD_TO_PLAYLIST)
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                    onBack = {
+                                        if (showLyrics) {
+                                            showLyrics = false
+                                        } else if (showPlaylist) {
+                                            showPlaylist = false
+                                        } else {
+                                            targetExpandProgress = 0f
+                                            scope.launch { sheetState.partialExpand() }
+                                        }
+                                    },
+                                    showPlaylist = showPlaylist,
+                                    onLyricsClick = {
+                                        showLyrics = true
+                                        showPlaylist = false
+                                    },
+                                    showLyrics = showLyrics,
+                                    onSettingsClick = onNavigateToSettings,
+                                    onSleepTimerClick = onNavigateToSleepTimer,
+                                    onTogglePlaylist = {
+                                        showPlaylist = it
+                                        if (it) showLyrics = false
+                                    }
+                                )
+                            }
+                        }
+
+                        if (expandProgress < 1f) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(64.dp)
+                                    .alpha(1f - expandProgress)
+                            ) {
+                                MiniPlayerContent(
+                                    openPlayer = {
+                                        targetExpandProgress = 1f
+                                        scope.launch { sheetState.expand() }
+                                    }
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = !showPlaylist && !showLyrics,
+                            enter = fadeIn(tween(400)),
+                            exit = fadeOut(tween(400))
+                        ) {
+                            SharedThumbnail(
+                                expandProgress = expandProgress,
+                                isLandscape = isLandscape,
+                                onNavigateToPlaybackSourceSettings = onNavigateToPlaybackSourceSettings
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

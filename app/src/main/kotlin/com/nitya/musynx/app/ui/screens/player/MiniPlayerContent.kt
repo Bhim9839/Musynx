@@ -1,0 +1,190 @@
+package com.nitya.musynx.app.ui.screens.player
+
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import com.nitya.musynx.core.ui.LocalAppearance
+import com.nitya.musynx.app.LocalPlayerServiceBinder
+import com.nitya.musynx.app.R
+import com.nitya.musynx.app.ui.components.MusicBars
+import com.nitya.musynx.app.utils.DisposableListener
+import com.nitya.musynx.app.utils.shouldBePlaying
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlin.time.Duration.Companion.milliseconds
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MiniPlayerContent(
+    openPlayer: () -> Unit
+) {
+    val binder = LocalPlayerServiceBinder.current
+    val player = binder?.player
+    val (colorPalette) = LocalAppearance.current
+
+    var shouldBePlaying by remember(player) { mutableStateOf(player?.shouldBePlaying ?: false) }
+
+    var nullableMediaItem by remember(player) {
+        mutableStateOf(player?.currentMediaItem, neverEqualPolicy())
+    }
+
+    var position by remember(player) { mutableLongStateOf(player?.currentPosition ?: 0L) }
+    var duration by remember(player) { mutableLongStateOf(player?.duration ?: 0L) }
+
+    LaunchedEffect(player, shouldBePlaying) {
+        if (shouldBePlaying && player != null) {
+            while (isActive) {
+                position = player.currentPosition
+                duration = player.duration
+                delay(1000.milliseconds)
+            }
+        }
+    }
+
+    player?.DisposableListener {
+        object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                nullableMediaItem = mediaItem
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                shouldBePlaying = player.shouldBePlaying
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                shouldBePlaying = player.shouldBePlaying
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                position = newPosition.positionMs
+            }
+        }
+    }
+
+    Box(
+        contentAlignment = Alignment.BottomCenter,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .clip(MaterialTheme.shapes.extraLarge)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { if (nullableMediaItem != null) openPlayer() }
+            )
+    ) {
+        ListItem(
+            headlineContent = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (shouldBePlaying) {
+                        MusicBars(
+                            color = colorPalette.accent,
+                            modifier = Modifier.size(width = 14.dp, height = 12.dp)
+                        )
+                    }
+                    Text(
+                        text = nullableMediaItem?.mediaMetadata?.title?.toString() ?: "Musynx",
+                        modifier = Modifier.basicMarquee(),
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        color = colorPalette.text
+                    )
+                }
+            },
+            supportingContent = {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = nullableMediaItem?.mediaMetadata?.artist?.toString() ?: stringResource(R.string.not_playing),
+                        modifier = Modifier.basicMarquee(),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 12.sp,
+                        color = colorPalette.textSecondary
+                    )
+                }
+            },
+            leadingContent = {
+                Spacer(modifier = Modifier.size(44.dp))
+            },
+            trailingContent = {
+                MiniPlayerControl(
+                    playing = shouldBePlaying,
+                    onClick = {
+                        if (player != null && nullableMediaItem != null) {
+                            if (shouldBePlaying) {
+                                player.pause()
+                            } else {
+                                when (player.playbackState) {
+                                    Player.STATE_IDLE -> player.prepare()
+                                    Player.STATE_ENDED -> player.seekToDefaultPosition(0)
+                                    Player.STATE_BUFFERING,
+                                    Player.STATE_READY -> {}
+                                }
+                                player.play()
+                            }
+                        }
+                    }
+                )
+            },
+            colors = ListItemDefaults.colors(
+                containerColor = Color.Transparent
+            )
+        )
+
+        if (duration > 0) {
+            LinearProgressIndicator(
+                progress = { position.toFloat() / duration.coerceAtLeast(1L) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp),
+                color = colorPalette.accent,
+                trackColor = Color.Transparent,
+                strokeCap = StrokeCap.Round
+            )
+        }
+    }
+}
